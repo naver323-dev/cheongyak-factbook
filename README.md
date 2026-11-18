@@ -28,7 +28,7 @@ config/ga_id.txt     GA4 측정 ID (없으면 태그 미삽입)
 
 `python3 scripts/fetch.py` → `python3 scripts/fetch_details.py` → `python3 scripts/build.py` → `python3 scripts/check.py`
 
-`.github/workflows/update.yml`이 매일 05:00(KST) 위 순서를 돌리고, 원본·캐시가 바뀌면 그 변경분을 커밋합니다.
+`.github/workflows/update.yml`이 매주 월요일 05:00(KST) 위 순서를 돌리고, 원본·캐시가 바뀌면 그 변경분을 커밋합니다.
 Cloudflare Pages가 `main` 푸시를 감지해 `python3 scripts/build.py`로 `site/`를 만들고 자동 재배포합니다.
 (빌드 산출물은 저장소에 커미트하지 않습니다.) 원본 수집이 실패하면 커밋된 스냅샷으로 빌드해
 사이트가 이전 상태로 유지됩니다(방어 코드).
