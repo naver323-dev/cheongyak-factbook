@@ -1,0 +1,42 @@
+{
+  "info": {
+    "bytes": 1592459,
+    "dataset_updated": "2025-11-28",
+    "fetched_at": "2026-11-18T10:36:45+09:00",
+    "file": "info.csv",
+    "name": "한국부동산원_청약홈_APT 분양정보",
+    "pk": "15101046",
+    "records": "2594",
+    "sha256": "da0722409157619242fb614c145541051e1584aadfd1176f946910c5085d4ae2"
+  },
+  "rate": {
+    "bytes": 3245621,
+    "dataset_updated": "2026-10-22",
+    "fetched_at": "2026-11-18T10:37:01+09:00",
+    "file": "rate.csv",
+    "name": "한국부동산원_청약홈_APT 경쟁률",
+    "pk": "15101048",
+    "records": "54654",
+    "sha256": "eb1fc084df6a0e7158aa71893dd9ccd67a04936464f4665df3ae6426efa67937"
+  },
+  "score": {
+    "bytes": 1584463,
+    "dataset_updated": "2026-08-18",
+    "fetched_at": "2026-11-18T10:37:11+09:00",
+    "file": "score.csv",
+    "name": "한국부동산원_청약홈_APT 경쟁률 가점정보",
+    "pk": "15126242",
+    "records": "29364",
+    "sha256": "bd839cc8672fe3f9918e0f21ee6ab8514e2cffca21963c4ff5fad45fa14eaadb"
+  },
+  "unit": {
+    "bytes": 1155851,
+    "dataset_updated": "2025-11-28",
+    "fetched_at": "2026-11-18T10:36:52+09:00",
+    "file": "unit.csv",
+    "name": "한국부동산원_청약홈_APT 주택형별 분양정보",
+    "pk": "15101047",
+    "records": "13210",
+    "sha256": "f6a71618eee61414d9cc401f047192ea218f711927396fc5c1786060406d8642"
+  }
+}
