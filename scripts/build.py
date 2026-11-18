@@ -75,6 +75,12 @@ def n1(v, unit=""):
     return s + unit
 
 
+def rng(lo, hi):
+    if lo is None and hi is None:
+        return "–"
+    return f"{n1(lo)}~{n1(hi)}"
+
+
 def rate_fmt(v):
     return "–" if v is None else f"{v:,.1f} : 1"
 
@@ -405,7 +411,7 @@ def build_sido_pages(rows, regions, slugs):
                 continue
             area_rows += (
                 f'<tr><td>{e(label)}</td><td class="num">{s["n"]:,}</td><td class="num">{n1(s["min_score_avg"])}</td>'
-                f'<td class="num">{n1(s["min_score_median"])}</td><td class="num">{n1(s["min_score_min"])}~{n1(s["min_score_max"])}</td>'
+                f'<td class="num">{n1(s["min_score_median"])}</td><td class="num">{rng(s["min_score_min"], s["min_score_max"])}</td>'
                 f'<td class="num">{n1(s["avg_score_mean"])}</td><td class="num">{rate_fmt(s["rate_median"])}</td></tr>'
             )
         reg_rows = "".join(
@@ -467,7 +473,7 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
                     f'<td class="num">{s["n"]:,}</td>'
                     f'<td class="num">{n1(s["min_score_avg"])}</td>'
                     f'<td class="num">{n1(s["min_score_median"])}</td>'
-                    f'<td class="num">{n1(s["min_score_min"])}~{n1(s["min_score_max"])}</td>'
+                    f'<td class="num">{rng(s["min_score_min"], s["min_score_max"])}</td>'
                     f'<td class="num">{n1(s["avg_score_mean"])}</td>'
                     f'<td class="num">{rate_fmt(s["rate_median"])}</td>'
                     f'<td class="num">{e(s["last_notice"] or "–")}</td></tr>'

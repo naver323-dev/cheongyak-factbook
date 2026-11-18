@@ -4,6 +4,7 @@
 청약홈 원본은 동적 화면과 PDF라 검색·AI 인용이 어렵기 때문에, 같은 값을 기계가 읽을 수 있는 형태로 다시 정리했습니다.
 
 - 사이트: https://cheongyak-factbook.pages.dev (Cloudflare Pages, 무료)
+- GA4: `G-8NR0KWXMWM` (속성 ID 564957122)
 - 원본: 공공데이터포털 파일데이터 4종 (무료·이용허락범위 제한 없음)
   - 15101046 APT 분양정보 · 15101047 APT 주택형별 분양정보 · 15101048 APT 경쟁률 · 15126242 APT 경쟁률 가점정보
 - LLM 호출 0원: 집계·생성·검증 모두 순수 파이썬
@@ -27,8 +28,9 @@ config/ga_id.txt     GA4 측정 ID (없으면 태그 미삽입)
 
 `python3 scripts/fetch.py` → `python3 scripts/fetch_details.py` → `python3 scripts/build.py` → `python3 scripts/check.py`
 
-`.github/workflows/update.yml`이 매일 05:00(KST) 위 순서를 돌리고, 내용이 바뀌면 `site/`를 커밋합니다.
-Cloudflare Pages가 `main` 푸시를 감지해 자동 재배포합니다. 원본 수집이 실패하면 커밋된 스냅샷으로 빌드해
+`.github/workflows/update.yml`이 매일 05:00(KST) 위 순서를 돌리고, 원본·캐시가 바뀌면 그 변경분을 커밋합니다.
+Cloudflare Pages가 `main` 푸시를 감지해 `python3 scripts/build.py`로 `site/`를 만들고 자동 재배포합니다.
+(빌드 산출물은 저장소에 커미트하지 않습니다.) 원본 수집이 실패하면 커밋된 스냅샷으로 빌드해
 사이트가 이전 상태로 유지됩니다(방어 코드).
 
 ## 값 정의
