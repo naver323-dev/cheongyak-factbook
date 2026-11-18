@@ -178,6 +178,7 @@ def page(title, desc, path, body, jsonld=None, extra_head=""):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(title)}</title>
 <meta name="description" content="{e(desc)}">
+<meta name="naver-site-verification" content="adbf80252d1e31b5b8f9812de8cf8ec15a92e33c">
 <link rel="canonical" href="{canonical}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="{e(title)}">
