@@ -403,9 +403,24 @@ def build_units_table(complexes, units, scores, rates):
     return rows
 
 
+RECENT_DAYS = 730  # ‘최근 2년’ 창(일). 지침서 §5와 같은 값
+
+
+def recent_cutoff(last_notice):
+    """최근 2년 창의 배타 기준일.
+
+    이 날짜 **이후**(>) 공고만 최근 2년으로 센다. 예: 최근 공고일 2026-08-21 →
+    기준일 2024-08-21 → 창은 2024-08-22~2026-08-21(양끝 포함 730일).
+    """
+    if not last_notice:
+        return None
+    return (datetime.fromisoformat(last_notice) - timedelta(days=RECENT_DAYS)).date().isoformat()
+
+
 def summarize(rows, cutoff=None):
     if cutoff:
-        rows = [r for r in rows if r["notice_date"] >= cutoff]
+        # 기준일 당일(창 밖 1일 초과)은 제외해 창 길이를 정확히 730일로 맞춘다
+        rows = [r for r in rows if r["notice_date"] > cutoff]
     mins = [r["score_min"] for r in rows if r["score_min"]]
     avgs = [r["score_avg"] for r in rows if r["score_avg"]]
     maxs = [r["score_max"] for r in rows if r["score_max"]]
@@ -428,13 +443,38 @@ def summarize(rows, cutoff=None):
     }
 
 
+def empty_summary():
+    """최근 창에 자료가 없을 때의 요약값.
+
+    전체기간 값으로 대신 채우지 않는다(‘최근’ 칸에 옛 날짜가 실리는 오염 방지).
+    """
+    return {
+        "n": 0,
+        "complexes": 0,
+        "min_score_avg": None,
+        "min_score_median": None,
+        "min_score_low": None,
+        "min_score_min": None,
+        "min_score_max": None,
+        "avg_score_mean": None,
+        "max_score_mean": None,
+        "rate_median": None,
+        "rate_avg": None,
+        "last_notice": None,
+    }
+
+
 def build_region_index(unit_rows):
-    """지역(시도+시군구) × 평형구간 집계."""
+    """지역(시도+시군구) × 평형구간 집계.
+
+    ‘최근 2년’ 창은 오늘 날짜가 아니라 **데이터의 최근 공고일** 기준으로 잡는다
+    (빌드 시점에 따라 창이 흔들리지 않게).
+    """
     by_region = defaultdict(list)
     for r in unit_rows:
         by_region[(r["sido"], r["sgg"])].append(r)
-    today = datetime.now(KST).date()
-    cutoff_recent = (today - timedelta(days=730)).isoformat()
+    last_notice_all = max((r["notice_date"] for r in unit_rows if r["notice_date"]), default="")
+    cutoff_recent = recent_cutoff(last_notice_all)
     regions = []
     for (sido, sgg), rws in by_region.items():
         areas = []
@@ -443,21 +483,23 @@ def build_region_index(unit_rows):
             allsum = summarize(sub)
             if not allsum:
                 continue
+            recent_sum = summarize(sub, cutoff_recent) if cutoff_recent else None
             areas.append({
                 "bucket": label,
                 "all": allsum,
-                "recent": summarize(sub, cutoff_recent) or allsum,
-                "has_recent": bool(summarize(sub, cutoff_recent)),
+                "recent_12m": recent_sum or empty_summary(),
+                "has_recent": recent_sum is not None,
             })
         if not areas:
             continue
+        region_recent = summarize(rws, cutoff_recent) if cutoff_recent else None
         regions.append({
             "sido": sido,
             "sgg": sgg,
             "areas": areas,
             "totals": summarize(rws),
-            "recent": summarize(rws, cutoff_recent) or summarize(rws),
-            "has_recent": bool(summarize(rws, cutoff_recent)),
+            "recent_12m": region_recent or empty_summary(),
+            "has_recent": region_recent is not None,
             "last_notice": max((r["notice_date"] for r in rws if r["notice_date"]), default=None),
             "complex_ids": sorted({r["complex_id"] for r in rws}, reverse=True),
         })

@@ -1,2 +1,6 @@
 site/
 config/forbidden_terms.txt
+
+# build/test artifacts
+__pycache__/
+*.pyc

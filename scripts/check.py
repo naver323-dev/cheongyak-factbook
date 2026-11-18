@@ -9,11 +9,13 @@
  4. 금지 문구(실명·군 관련) 미포함
  5. 값 정합성(최저 ≤ 평균 ≤ 최고, 0~84점, 표본≠0)
  6. llms.txt 내부 링크가 실제 파일과 일치
+ 7. 최근 2년 창 회귀 검사(window_start·recent_12m 키·폴백 오염·/score/ 날짜·정의문)
 """
 import json
 import os
 import re
 import sys
+from datetime import datetime, timedelta
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
@@ -125,6 +127,77 @@ def main():
     for r in regions:
         if r["units"] <= 0:
             err(f"표본 0 지역: {r['slug']}")
+
+    # ── 최근 2년 창 정합성 (회귀 검사) ────────────────────────────────
+    # 1) 창 길이: data_through 기준 730일, 그 이전 공고는 창 밖
+    data_through = meta["data_through"]
+    window_start = meta.get("window_start") or ""
+    recent_cutoff = (datetime.fromisoformat(data_through) - timedelta(days=730)).date().isoformat()
+    expect_start = (datetime.fromisoformat(data_through) - timedelta(days=729)).date().isoformat()
+    if window_start != expect_start:
+        err(f"window_start 불일치: meta {window_start!r} vs 기대 {expect_start}")
+
+    # 2) 키 이름: 두 엔드포인트 모두 recent_12m (구 ‘recent’ 금지)
+    for r in regions:
+        for a in r["areas"]:
+            if "recent" in a:
+                err(f"구 키 이름 recent 사용: regions.json {r['slug']} {a['bucket']}")
+            if "recent_12m" not in a:
+                err(f"recent_12m 없음: regions.json {r['slug']} {a['bucket']}")
+            if "has_recent" not in a:
+                err(f"has_recent 없음: regions.json {r['slug']} {a['bucket']}")
+
+    # 3) 폴백 오염: 창 밖 값을 최근 칸에 싣지 않는다 + n은 창 안 주택형 수와 같다
+    stat_keys = ("min_score_avg", "min_score_median", "min_score_low", "min_score_min",
+                 "min_score_max", "avg_score_mean", "max_score_mean", "rate_median", "rate_avg")
+    checked_regions = 0
+    for r in regions:
+        rj = json.loads(read(f"api/region/{r['slug']}.json"))
+        if "window_start" in rj and rj["window_start"] != expect_start:
+            err(f"지역 JSON window_start 불일치: {r['slug']}")
+        for a in rj["summary"]["areas"]:
+            if "recent" in a:
+                err(f"구 키 이름 recent 사용: api/region/{r['slug']}.json {a['bucket']}")
+            rec = a.get("recent_12m") or {}
+            inwin = [u for u in rj["units"] if u["bucket"] == a["bucket"] and u["date"] > recent_cutoff]
+            if rec.get("n") != len(inwin):
+                err(f"recent_12m.n 불일치: {r['slug']} {a['bucket']} {rec.get('n')} vs {len(inwin)}")
+            if rec.get("n") == 0:
+                if not a.get("has_recent") is False:
+                    err(f"has_recent 이상: {r['slug']} {a['bucket']}")
+                if any(rec.get(k) is not None for k in stat_keys) or rec.get("last_notice") is not None:
+                    err(f"빈 창에 값이 채워짐(폴백 오염): {r['slug']} {a['bucket']}")
+                if rec != {k: (0 if k in ('n', 'complexes') else None) for k in list(rec)}:
+                    pass
+            else:
+                if not a.get("has_recent"):
+                    err(f"has_recent=false인데 표본 있음: {r['slug']} {a['bucket']}")
+                if rec.get("last_notice") and rec["last_notice"] <= recent_cutoff:
+                    err(f"창 밖 날짜를 최근으로 표기: {r['slug']} {a['bucket']} {rec['last_notice']}")
+                dates = [u["date"] for u in inwin if u["date"]]
+                if dates and rec.get("last_notice") != max(dates):
+                    err(f"recent_12m.last_notice 불일치: {r['slug']} {a['bucket']}")
+        checked_regions += 1
+    if checked_regions == 0:
+        err("지역 JSON을 하나도 검사하지 못함")
+
+    # 4) /score/ 페이지 목록에 창 밖 공고가 섞이지 않는다
+    for t in (40, 58, 75):
+        html = read(f"score/{t}/index.html")
+        for d in re.findall(r'<td class="num">(\d{4}-\d{2}-\d{2})</td>', html):
+            if d <= recent_cutoff:
+                err(f"/score/{t}/ 에 창 밖 공고 {d} (기준 {recent_cutoff})")
+
+    # 5) 정의문: “기준 1년” 같은 모순 문구가 남지 않는다
+    for path in ("about/index.html", "llms.txt", "llms-full.txt", "api/meta.json"):
+        text = read(path)
+        if "기준 1년" in text:
+            err(f"최근 2년 정의문이 ‘1년’으로 남아 있음: {path}")
+        if "730" not in text:
+            err(f"최근 2년 정의(730일) 없음: {path}")
+    for path in ("about/index.html", "llms.txt", "llms-full.txt"):
+        if window_start not in read(path):
+            err(f"최근 2년 창 시작일({window_start}) 표기 없음: {path}")
 
     # HTML 공통 요소
     html_files = list(walk_html())

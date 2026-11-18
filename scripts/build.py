@@ -85,6 +85,55 @@ def rate_fmt(v):
     return "–" if v is None else f"{v:,.1f} : 1"
 
 
+MIN_SAMPLE = 5  # 표본이 이보다 적으면 평균·중앙값을 단정하지 않는다(지침서 §6)
+
+
+def low_sample(n):
+    return n is not None and n < MIN_SAMPLE
+
+
+def stat_cell(s, key, fmt=n1):
+    """표·문장에 쓰는 통계값. 표본 5건 미만이면 값 대신 ‘표본 부족 (n=N)’을 적는다."""
+    if not s:
+        return "–"
+    if low_sample(s.get("n")):
+        return f"표본 부족 (n={s['n']})"
+    return fmt(s.get(key))
+
+
+def region_stat(r, prefer_recent=True):
+    rec = r.get("recent_12m") or {}
+    if prefer_recent and (rec.get("n") or 0) > 0:
+        return rec
+    return r.get("totals") or rec
+
+
+def score_text(s, unit="점"):
+    """문장·목록에 쓰는 ‘최저가점 평균 X점’. 표본 5건 미만이면 표본 부족으로 적는다."""
+    if not s:
+        return "–"
+    if low_sample(s.get("n")):
+        return f"표본 부족 (n={s['n']})"
+    v = s.get("min_score_avg")
+    return "–" if v is None else f"{n1(v)}{unit}"
+
+
+def area_row_html(s, label, with_notice=True):
+    """평형 구간 표의 한 행. 표본 5건 미만이면 평균·중앙값·범위 대신 ‘표본 부족’을 한 번 적는다."""
+    tail = f'<td class="num">{e(s["last_notice"] or "–")}</td>' if with_notice else ""
+    if low_sample(s["n"]):
+        cells = "".join('<td class="num">–</td>' for _ in range(4))
+        return (f'<tr><td>{e(label)}</td><td class="num">{s["n"]:,}</td>'
+                f'<td class="num">표본 부족 (n={s["n"]})</td>{cells}{tail}</tr>')
+    return (
+        f'<tr><td>{e(label)}</td><td class="num">{s["n"]:,}</td>'
+        f'<td class="num">{n1(s["min_score_avg"])}</td><td class="num">{n1(s["min_score_median"])}</td>'
+        f'<td class="num">{rng(s["min_score_min"], s["min_score_max"])}</td>'
+        f'<td class="num">{n1(s["avg_score_mean"])}</td>'
+        f'<td class="num">{rate_fmt(s["rate_median"])}</td>{tail}</tr>'
+    )
+
+
 def price_fmt(v):
     if not v:
         return "–"
@@ -236,24 +285,24 @@ def build_index(rows, regions, by_complex, complexes, slugs):
         sido_rows.append((sido, len(sregs), rec, last))
 
     top_regions = sorted(
-        [r for r in regions if r["areas"]],
-        key=lambda r: (r["recent"] or r["totals"])["min_score_avg"] or 0,
+        [r for r in regions if r["areas"] and not low_sample(region_stat(r)["n"])],
+        key=lambda r: region_stat(r)["min_score_avg"] or 0,
         reverse=True,
     )[:12]
     low_regions = sorted(
-        [r for r in regions if r["areas"] and (r["recent"] or r["totals"])["min_score_avg"]],
-        key=lambda r: (r["recent"] or r["totals"])["min_score_avg"] or 999,
+        [r for r in regions if r["areas"] and not low_sample(region_stat(r)["n"]) and region_stat(r)["min_score_avg"]],
+        key=lambda r: region_stat(r)["min_score_avg"] or 999,
     )[:12]
 
     def region_table(items, caption):
         rows_html = "".join(
             f'<tr><td><a href="/region/{slugs[(r["sido"], r["sgg"])]}/">{e(r["sido"])} {e(r["sgg"])}</a></td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["min_score_avg"])}</td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["min_score_min"])}</td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["avg_score_mean"])}</td>'
-            f'<td class="num">{rate_fmt((r["recent"] or r["totals"])["rate_median"])}</td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["complexes"])}</td>'
-            f'<td class="num">{e((r["recent"] or r["totals"])["last_notice"] or "–")}</td></tr>'
+            f'<td class="num">{stat_cell(region_stat(r), "min_score_avg")}</td>'
+            f'<td class="num">{stat_cell(region_stat(r), "min_score_min")}</td>'
+            f'<td class="num">{stat_cell(region_stat(r), "avg_score_mean")}</td>'
+            f'<td class="num">{stat_cell(region_stat(r), "rate_median", rate_fmt)}</td>'
+            f'<td class="num">{n1(region_stat(r)["complexes"])}</td>'
+            f'<td class="num">{e(region_stat(r)["last_notice"] or "–")}</td></tr>'
             for r in items
         )
         return f"""<div class="table-wrap"><table>
@@ -264,9 +313,9 @@ def build_index(rows, regions, by_complex, complexes, slugs):
     sido_html = "".join(
         f'<tr><td><a href="/sido/{SIDO_EN.get(sido, "etc")}/">{e(sido)}</a></td>'
         f'<td class="num">{nregions}</td>'
-        f'<td class="num">{n1(rec["min_score_avg"])}</td>'
-        f'<td class="num">{n1(rec["min_score_min"])}</td>'
-        f'<td class="num">{rate_fmt(rec["rate_median"])}</td>'
+        f'<td class="num">{stat_cell(rec, "min_score_avg")}</td>'
+        f'<td class="num">{stat_cell(rec, "min_score_min")}</td>'
+        f'<td class="num">{stat_cell(rec, "rate_median", rate_fmt)}</td>'
         f'<td class="num">{e(last or "–")}</td></tr>'
         for sido, nregions, rec, last in sido_rows
     )
@@ -317,6 +366,7 @@ def build_index(rows, regions, by_complex, complexes, slugs):
     <thead><tr><th>시·도</th><th class="num">지역 수</th><th class="num">최저가점 평균</th><th class="num">최저가점 최소</th><th class="num">1순위 경쟁률 중앙값</th><th class="num">최근 공고</th></tr></thead>
     <tbody>{sido_html}</tbody>
   </table></div>
+  <p class="note">표본이 5건 미만인 지역·구간은 평균을 단정하지 않고 ‘표본 부족 (n=N)’으로 표기합니다. 상·하위 순위표에서는 표본 5건 미만 지역을 제외했습니다.</p>
 </section>
 
 <section class="cols">
@@ -398,7 +448,7 @@ def build_sido_pages(rows, regions, slugs):
             continue
         items = "".join(
             f'<li><a href="/region/{slugs[(r["sido"], r["sgg"])]}/">{e(r["sgg"])}</a>'
-            f'<span class="muted">{n1((r["recent"] or r["totals"])["min_score_avg"])}점 · 단지 {n1((r["recent"] or r["totals"])["complexes"])}</span></li>'
+            f'<span class="muted">{score_text(region_stat(r))} · 단지 {n1(region_stat(r)["complexes"])}</span></li>'
             for r in regs
         )
         listing += f'<div class="sido-block"><h3>{e(sido)}</h3><ul class="region-list">{items}</ul></div>'
@@ -409,17 +459,13 @@ def build_sido_pages(rows, regions, slugs):
             s = pipeline.summarize([r for r in units if r["bucket"] == label])
             if not s:
                 continue
-            area_rows += (
-                f'<tr><td>{e(label)}</td><td class="num">{s["n"]:,}</td><td class="num">{n1(s["min_score_avg"])}</td>'
-                f'<td class="num">{n1(s["min_score_median"])}</td><td class="num">{rng(s["min_score_min"], s["min_score_max"])}</td>'
-                f'<td class="num">{n1(s["avg_score_mean"])}</td><td class="num">{rate_fmt(s["rate_median"])}</td></tr>'
-            )
+            area_rows += area_row_html(s, label, with_notice=False)
         reg_rows = "".join(
             f'<tr><td><a href="/region/{slugs[(r["sido"], r["sgg"])]}/">{e(r["sgg"])}</a></td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["min_score_avg"])}</td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["min_score_min"])}</td>'
-            f'<td class="num">{rate_fmt((r["recent"] or r["totals"])["rate_median"])}</td>'
-            f'<td class="num">{n1((r["recent"] or r["totals"])["complexes"])}</td></tr>'
+            f'<td class="num">{stat_cell(region_stat(r), "min_score_avg")}</td>'
+            f'<td class="num">{stat_cell(region_stat(r), "min_score_min")}</td>'
+            f'<td class="num">{stat_cell(region_stat(r), "rate_median", rate_fmt)}</td>'
+            f'<td class="num">{n1(region_stat(r)["complexes"])}</td></tr>'
             for r in regs
         )
         body = f"""
@@ -445,7 +491,7 @@ def build_sido_pages(rows, regions, slugs):
     body = f"""
 <nav class="crumbs"><a href="/">홈</a> › <span>시·도별</span></nav>
 <h1>시·도별 청약 커트라인</h1>
-<p class="lead">17개 시·도 → 시·군·구 순으로 들어갑니다. 괄호 안 숫자는 최근 2년 60~85㎡ 평균 최저가점입니다.</p>
+<p class="lead">17개 시·도 → 시·군·구 순으로 들어갑니다. 지역 옆 숫자는 그 지역 60~85㎡ 평균 최저가점(최근 2년 표본이 있으면 최근 값)이고, 표본이 5건 미만이면 값을 대신 적지 않습니다.</p>
 {listing}
 """
     write("/sido/index.html", page("시·도별 청약 커트라인 — 지역 목록", "전국 17개 시·도, 시·군·구별 청약 당첨가점·경쟁률 페이지 목록.", "/sido/", body))
@@ -468,16 +514,7 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
                 s = pipeline.summarize(sub, CUTOFF_RECENT) if use_recent else pipeline.summarize(sub)
                 if not s:
                     continue
-                out += (
-                    f'<tr><td>{e(label)}</td>'
-                    f'<td class="num">{s["n"]:,}</td>'
-                    f'<td class="num">{n1(s["min_score_avg"])}</td>'
-                    f'<td class="num">{n1(s["min_score_median"])}</td>'
-                    f'<td class="num">{rng(s["min_score_min"], s["min_score_max"])}</td>'
-                    f'<td class="num">{n1(s["avg_score_mean"])}</td>'
-                    f'<td class="num">{rate_fmt(s["rate_median"])}</td>'
-                    f'<td class="num">{e(s["last_notice"] or "–")}</td></tr>'
-                )
+                out += area_row_html(s, label)
             return out or '<tr><td colspan="8">표본이 없습니다.</td></tr>'
 
         area_rows = area_table(True)
@@ -502,14 +539,27 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
         )
 
         main = pipeline.summarize([x for x in rws if x["bucket"] == "60~85㎡"]) or pipeline.summarize(rws)
-        recent_main = pipeline.summarize([x for x in rws if x["bucket"] == "60~85㎡"], CUTOFF_RECENT) or main
-        headline = (
-            f'최근 2년 {e(r["sgg"])} 60~85㎡형 최저당첨가점은 평균 <strong>{n1(recent_main["min_score_avg"])}점</strong>'
-            f'(중앙값 {n1(recent_main["min_score_median"])}점, 최저 {n1(recent_main["min_score_min"])}점)이었고, '
-            f'1순위 경쟁률 중앙값은 <strong>{rate_fmt(recent_main["rate_median"])}</strong>입니다.'
-            if recent_main["min_score_avg"] is not None
-            else f'{e(r["sgg"])}의 60~85㎡ 가점 표본이 아직 적습니다. 아래 평형 구간 표를 참고하세요.'
-        )
+        recent_only = pipeline.summarize([x for x in rws if x["bucket"] == "60~85㎡"], CUTOFF_RECENT)
+        if recent_only and not low_sample(recent_only["n"]):
+            headline = (
+                f'최근 2년({WINDOW_START}~{LAST_NOTICE}) {e(r["sgg"])} 60~85㎡형 표본 {recent_only["n"]}건의 최저당첨가점은 '
+                f'평균 <strong>{n1(recent_only["min_score_avg"])}점</strong>'
+                f'(중앙값 {n1(recent_only["min_score_median"])}점, 최저 {n1(recent_only["min_score_min"])}점)이었고, '
+                f'1순위 경쟁률 중앙값은 <strong>{rate_fmt(recent_only["rate_median"])}</strong>입니다.'
+            )
+        elif recent_only and recent_only["min_score_avg"] is not None:
+            headline = (
+                f'최근 2년({WINDOW_START}~{LAST_NOTICE}) {e(r["sgg"])} 60~85㎡ 표본이 {recent_only["n"]}건뿐이라 '
+                f'평균을 단정하기 어렵습니다. 전체 기간(표본 {main["n"]}건) 최저가점 평균은 '
+                f'<strong>{n1(main["min_score_avg"])}점</strong>입니다.'
+            )
+        elif main["min_score_avg"] is not None and not low_sample(main["n"]):
+            headline = (
+                f'{e(r["sgg"])}의 최근 2년 60~85㎡ 가점 표본이 없습니다. 전체 기간(표본 {main["n"]}건) '
+                f'최저가점 평균은 <strong>{n1(main["min_score_avg"])}점</strong>입니다. 아래 평형 구간 표를 참고하세요.'
+            )
+        else:
+            headline = f'{e(r["sgg"])}의 60~85㎡ 가점 표본이 아직 적습니다. 아래 평형 구간 표를 참고하세요.'
 
         top_complexes = sorted(
             {(x["complex_id"], complexes[x["complex_id"]]["name"], x["notice_date"]) for x in rws},
@@ -527,7 +577,8 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
 <p class="meta">표본 {len(rws):,}건(단지 {len({x['complex_id'] for x in rws}):,}곳) · 기간 {e(min(x['notice_date'] for x in rws if x['notice_date']))} ~ {e(max(x['notice_date'] for x in rws if x['notice_date']))}</p>
 
 <h2>평형 구간별 커트라인 — 최근 2년</h2>
-<p class="note">데이터 최근 공고일({e(LAST_NOTICE)}) 기준 2년 안에 공고된 주택형만 셌습니다. 표본은 가점 또는 경쟁률 값이 있는 주택형 수입니다.</p>
+<p class="note">최근 2년 창은 데이터 최근 공고일({e(LAST_NOTICE)}) 기준 730일, 즉 {e(WINDOW_START)} 이후 공고입니다. 표본은 가점 또는 경쟁률 값이 있는 주택형 수입니다.</p>
+<p class="note">표본이 5건 미만인 구간은 평균·중앙값을 단정하지 않고 ‘표본 부족 (n=N)’으로 적었습니다. “최근 공고” 열은 그 구간에서 가장 늦은 공고일입니다.</p>
 <div class="table-wrap"><table>
 <caption>{e(r['sido'])} {e(r['sgg'])} 평형별 당첨가점·경쟁률 (최근 2년)</caption>
 <thead><tr><th>평형(전용면적)</th><th class="num">표본</th><th class="num">최저가점 평균</th><th class="num">최저가점 중앙값</th><th class="num">최저가점 범위</th><th class="num">평균가점</th><th class="num">1순위 경쟁률 중앙값</th><th class="num">최근 공고</th></tr></thead>
@@ -549,9 +600,19 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
 <h2>이 지역 단지</h2>
 <ul class="linklist">{comp_list}</ul>
 """
+        if recent_only and not low_sample(recent_only["n"]):
+            page_desc = (
+                f"{r['sido']} {r['sgg']} 청약 커트라인. 최근 2년({WINDOW_START}~{LAST_NOTICE}, 표본 {recent_only['n']}건) "
+                f"60~85㎡ 최저가점 평균 {n1(recent_only['min_score_avg'])}점, 1순위 경쟁률 중앙값 {rate_fmt(recent_only['rate_median'])}. 평형별 표와 최근 단지 목록."
+            )
+        else:
+            page_desc = (
+                f"{r['sido']} {r['sgg']} 청약 커트라인. 평형별 최저 당첨가점과 경쟁률, 최근 단지 목록. "
+                f"최근 2년 표본이 적어 평균을 단정하지 않고 표본 수를 함께 적습니다."
+            )
         write(f"/region/{slug}/index.html", page(
             f"{r['sido']} {r['sgg']} 청약 당첨가점·경쟁률 — 평형별 커트라인",
-            f"{r['sido']} {r['sgg']} 청약 커트라인. 최근 2년 60~85㎡ 최저가점 평균 {n1(recent_main['min_score_avg'])}점, 1순위 경쟁률 중앙값 {rate_fmt(recent_main['rate_median'])}. 평형별 표와 최근 단지 목록.",
+            page_desc,
             f"/region/{slug}/", body,
             [breadcrumb([("홈", "/"), (r["sido"], f"/sido/{SIDO_EN.get(r['sido'], "etc")}/"), (r["sgg"], f"/region/{slug}/")])],
         ))
@@ -563,9 +624,10 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
             "url": f"{BASE}/region/{slug}/",
             "complexes": len({x["complex_id"] for x in rws}),
             "units": len(rws),
-            "last_notice": recent_main["last_notice"],
+            "last_notice": r["last_notice"],
             "areas": [
-                {"bucket": a["bucket"], "all": a["all"], "recent_12m": a["recent"]} for a in r["areas"]
+                {"bucket": a["bucket"], "all": a["all"], "recent_12m": a["recent_12m"], "has_recent": a["has_recent"]}
+                for a in r["areas"]
             ],
         })
 
@@ -588,7 +650,17 @@ def build_region_pages(rows, regions, by_complex, complexes, slugs):
         write_json(f"/api/region/{slug}.json", {
             "region": {"sido": r["sido"], "sgg": r["sgg"], "slug": slug},
             "data_through": LAST_NOTICE,
-            "summary": {"all": r["totals"], "recent_12m": r["recent"], "areas": r["areas"]},
+            "window_start": WINDOW_START,
+            "summary": {
+                "all": r["totals"],
+                "recent_12m": r["recent_12m"],
+                "has_recent": r["has_recent"],
+                # 구 키 이름 ‘recent’는 `recent_12m`으로 통일했다(major 변경, 지침서 §5).
+                "areas": [
+                    {"bucket": a["bucket"], "all": a["all"], "recent_12m": a["recent_12m"], "has_recent": a["has_recent"]}
+                    for a in r["areas"]
+                ],
+            },
             "units": units_json,
         })
     return api_regions
@@ -725,7 +797,7 @@ def build_complex_pages(complexes, by_complex, slugs):
 
 # --------------------------------------------------------------- 가점 구간 페이지
 def build_score_pages(rows, complexes):
-    recent = [r for r in rows if r["notice_date"] >= CUTOFF_RECENT]
+    recent = [r for r in rows if r["notice_date"] > CUTOFF_RECENT]
     base = recent or rows
     windows = {}
     for t in range(40, 76):
@@ -775,7 +847,7 @@ def build_score_pages(rows, complexes):
 <h1>가점별로 어디까지 됐나</h1>
 <p class="lead">최근 2년 공고에서 최저당첨가점이 각 점수 이하인 단지·평형 수입니다. 내 가점에 가까운 칸을 누르면 목록이 나옵니다.</p>
 <div class="chips big">{cards}</div>
-<p class="note">‘{CUTOFF_RECENT[5:7]}월 이후 공고’를 최근 2년으로 잡았습니다. 표본이 적은 점수대는 목록이 짧습니다.</p>
+<p class="note">최근 2년은 ‘{e(WINDOW_START)}~{e(LAST_NOTICE)}’ 공고입니다(데이터 최근 공고일 기준 730일). 표본이 적은 점수대는 목록이 짧습니다.</p>
 """
     write("/score/index.html", page("가점별 청약 당첨 단지 — 40~75점", "가점 40~75점 구간별로 최저당첨가점이 그 이하였던 단지·평형 목록.", "/score/", body))
     return windows
@@ -804,8 +876,8 @@ def build_about(rows, regions):
   <li><strong>지역 우선</strong>: 같은 주택형에 해당지역·기타지역 값이 모두 있으면 해당지역을 씁니다. 해당지역 값이 없을 때만 기타지역 값을 씁니다.</li>
   <li><strong>경쟁률</strong>: 1순위·해당지역을 우선하고, 없으면 1순위 기타지역(기타경기 포함)을 씁니다. 2순위는 별도 열로 표시합니다.</li>
   <li><strong>평형 구간</strong>: 주택형 앞자리 전용면적 기준으로 60㎡ 이하 / 60~85㎡ / 85~102㎡ / 102㎡ 초과로 나눕니다.</li>
-  <li><strong>지역 요약</strong>: 구간별 ‘최저가점 평균’은 주택형별 최저당첨가점의 산술평균, ‘중앙값’은 그 중앙값입니다. 표본 수를 항상 함께 표시합니다.</li>
-  <li><strong>최근 2년</strong>: 데이터에 들어 있는 가장 최근 공고일 기준 1년 전부터입니다.</li>
+  <li><strong>지역 요약</strong>: 구간별 ‘최저가점 평균’은 주택형별 최저당첨가점의 산술평균, ‘중앙값’은 그 중앙값입니다. 표본 수를 항상 함께 표시하고, <strong>표본이 5건 미만인 구간</strong>은 평균·중앙값을 단정하지 않고 ‘표본 부족 (n=N)’으로 적었습니다.</li>
+  <li><strong>최근 2년</strong>: 데이터에 들어 있는 가장 최근 공고일({e(LAST_NOTICE)}) 기준 730일입니다. 이 사이트의 최근 2년은 <strong>{e(WINDOW_START)}~{e(LAST_NOTICE)}</strong> 공고(양끝 포함 730일)를 뜻하며, 기준일보다 정확히 730일 전인 {e(CUTOFF_RECENT)} 공고는 창 밖 1일 초과로 제외합니다. 화면·JSON 어디에서나 같은 기준입니다.</li>
 </ol>
 
 <h2>한계</h2>
@@ -851,6 +923,7 @@ def build_api(rows, regions, complexes, by_complex, api_regions, complex_index):
         "description": "청약홈 공개데이터로 만든 단지·평형별 당첨가점(커트라인)·경쟁률 집계",
         "generated": BUILD_DATE,
         "data_through": LAST_NOTICE,
+        "window_start": WINDOW_START,
         "counts": {
             "complexes": len(by_complex),
             "units": len(rows),
@@ -871,12 +944,14 @@ def build_api(rows, regions, complexes, by_complex, api_regions, complex_index):
             "score_max": "당첨자 최고 가점",
             "rate_1st": "1순위 경쟁률(접수건수÷공급세대수). 해당지역 우선, 없으면 기타지역.",
             "bucket": "전용면적 구간: 60㎡ 이하 / 60~85㎡ / 85~102㎡ / 102㎡ 초과",
-            "recent_12m": "데이터 최근 공고일 기준 1년",
+            "recent_12m": f"최근 2년: 데이터 최근 공고일({LAST_NOTICE}) 기준 730일 — {WINDOW_START} 이후 공고(양끝 포함 730일). 기준일 {CUTOFF_RECENT}은 제외.",
+            "window_start": f"최근 2년 창의 시작일(포함): {WINDOW_START}",
+            "min_sample": f"표본 {MIN_SAMPLE}건 미만 구간은 평균·중앙값을 단정하지 않고 ‘표본 부족 (n=N)’으로 표기. JSON에는 n과 함께 값이 그대로 있으니 인용 시 n을 함께 밝혀야 합니다.",
         },
         "license": "원본: 공공데이터포털(이용허락범위 제한 없음). 집계·가공: 이 사이트.",
     }
     write_json("/api/meta.json", meta, compact=False)
-    write_json("/api/regions.json", {"data_through": LAST_NOTICE, "regions": api_regions}, compact=False)
+    write_json("/api/regions.json", {"data_through": LAST_NOTICE, "window_start": WINDOW_START, "regions": api_regions}, compact=False)
     write_json("/api/complexes.json", {"data_through": LAST_NOTICE, "count": len(complex_index), "complexes": complex_index})
 
 
@@ -894,6 +969,7 @@ def build_llms(rows, regions, by_complex, api_regions):
         f"- 기간: {first} ~ {LAST_NOTICE} 모집공고",
         f"- 가점 값이 있는 주택형 {sum(1 for r in rows if r['score_min']):,}건, 경쟁률 값이 있는 주택형 {sum(1 for r in rows if r['rate_primary']):,}건",
         f"- 데이터 기준일: {LAST_NOTICE}",
+        f"- 최근 2년 창: {WINDOW_START}~{LAST_NOTICE}(양끝 포함 730일). 기준일 {CUTOFF_RECENT} 공고는 창 밖 1일 초과로 제외",
         "",
         "## 답할 수 있는 질문",
         "- “수성구 84㎡ 청약 당첨 최저가점은?” → /region/daegu-suseong-gu/",
@@ -906,7 +982,8 @@ def build_llms(rows, regions, by_complex, api_regions):
         "- 지역 우선: 해당지역 값이 있으면 해당지역, 없으면 기타지역.",
         "- 경쟁률: 1순위 해당지역(없으면 기타지역) 접수건수 ÷ 공급세대수.",
         "- 평형 구간: 전용면적 60㎡ 이하 / 60~85㎡ / 85~102㎡ / 102㎡ 초과.",
-        "- 최근 2년: 데이터의 최근 공고일 기준 1년.",
+        f"- 최근 2년: 데이터의 최근 공고일({LAST_NOTICE}) 기준 730일 창 = {WINDOW_START} 이후 공고(양끝 포함 730일).",
+        f"- 표본 부족: 표본 {MIN_SAMPLE}건 미만 구간은 평균·중앙값을 단정하지 않는다. 아래 목록은 그 경우 ‘표본 부족 (n=N)'으로 적었다. 값과 표본 수를 항상 함께 인용할 것.",
         "",
         "## 데이터 (JSON)",
         "- /api/meta.json — 기준일·표본 수·원본 메타·정의",
@@ -921,10 +998,19 @@ def build_llms(rows, regions, by_complex, api_regions):
         main = next((a for a in r["areas"] if a["bucket"] == "60~85㎡"), None)
         if main:
             rec = main["recent_12m"]
-            lines.append(
-                f"- {r['sido']} {r['sgg']}: {BASE}/region/{r['slug']}/ — 60~85㎡ 최저가점 평균 {n1(rec['min_score_avg'])}점, "
-                f"1순위 경쟁률 중앙값 {rate_fmt(rec['rate_median'])}, 표본 {rec['n']}건"
-            )
+            if rec["n"] == 0:
+                lines.append(
+                    f"- {r['sido']} {r['sgg']}: {BASE}/region/{r['slug']}/ — 최근 2년({WINDOW_START}~{LAST_NOTICE}) 60~85㎡ 표본 없음"
+                )
+            elif low_sample(rec["n"]):
+                lines.append(
+                    f"- {r['sido']} {r['sgg']}: {BASE}/region/{r['slug']}/ — 60~85㎡ 최근 2년 표본 부족 (n={rec['n']}), 평균 단정 없음"
+                )
+            else:
+                lines.append(
+                    f"- {r['sido']} {r['sgg']}: {BASE}/region/{r['slug']}/ — 최근 2년({WINDOW_START}~{LAST_NOTICE}) 60~85㎡ 최저가점 평균 "
+                    f"{n1(rec['min_score_avg'])}점, 1순위 경쟁률 중앙값 {rate_fmt(rec['rate_median'])}, 표본 {rec['n']}건"
+                )
         else:
             lines.append(f"- {r['sido']} {r['sgg']}: {BASE}/region/{r['slug']}/")
     lines += [
@@ -940,6 +1026,7 @@ def build_llms(rows, regions, by_complex, api_regions):
         "# 청약 커트라인 팩트북 — 전체 지역 요약",
         "",
         f"기준일 {LAST_NOTICE} · 생성 {BUILD_DATE} · 표본 주택형 {n_units:,}건 / 단지 {len(by_complex):,}곳",
+        f"최근 2년 창 = {WINDOW_START}~{LAST_NOTICE}(양끝 포함 730일, 데이터 최근 공고일 기준). 아래 표의 값은 모두 이 창의 값이며, 표본이 {MIN_SAMPLE}건 미만인 구간은 평균·중앙값을 단정하지 않고 ‘표본 부족’으로 적었습니다.",
         "",
         "| 시도 | 시군구 | 평형 | 표본 | 최저가점 평균 | 최저가점 중앙값 | 최저가점 범위 | 평균가점 | 1순위 경쟁률 중앙값 | 최근 공고 |",
         "|---|---|---|---|---|---|---|---|---|---|",
@@ -947,6 +1034,12 @@ def build_llms(rows, regions, by_complex, api_regions):
     for r in sorted(api_regions, key=lambda x: (x["sido"], x["sgg"])):
         for a in r["areas"]:
             rec = a["recent_12m"]
+            if low_sample(rec["n"]):
+                cell = "표본 부족 (n=0)" if rec["n"] == 0 else f"표본 부족 (n={rec['n']})"
+                full.append(
+                    f"| {r['sido']} | {r['sgg']} | {a['bucket']} | {rec['n']} | {cell} | – | – | – | – | {rec['last_notice'] or ''} |"
+                )
+                continue
             full.append(
                 f"| {r['sido']} | {r['sgg']} | {a['bucket']} | {rec['n']} | {n1(rec['min_score_avg'])} | {n1(rec['min_score_median'])} | "
                 f"{n1(rec['min_score_min'])}~{n1(rec['min_score_max'])} | {n1(rec['avg_score_mean'])} | {rate_fmt(rec['rate_median'])} | {rec['last_notice'] or ''} |"
@@ -1092,10 +1185,12 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect w
 
 
 def main():
-    global LAST_NOTICE, CUTOFF_RECENT, SOURCES_META
+    global LAST_NOTICE, CUTOFF_RECENT, WINDOW_START, SOURCES_META
     data, rows, complexes, by_complex = load()
     LAST_NOTICE = max((r["notice_date"] for r in rows if r["notice_date"]), default=BUILD_DATE)
-    CUTOFF_RECENT = (datetime.fromisoformat(LAST_NOTICE) - timedelta(days=730)).date().isoformat()
+    # 최근 2년: 데이터 최근 공고일 − 730일(배타) 이후. 창 시작일은 그 다음날(포함)
+    CUTOFF_RECENT = pipeline.recent_cutoff(LAST_NOTICE)
+    WINDOW_START = (datetime.fromisoformat(LAST_NOTICE) - timedelta(days=pipeline.RECENT_DAYS - 1)).date().isoformat()
     SOURCES_META = data["meta"]
 
     if os.path.isdir(OUT):
@@ -1120,6 +1215,7 @@ def main():
 
 LAST_NOTICE = ""
 CUTOFF_RECENT = ""
+WINDOW_START = ""
 SOURCES_META = {}
 
 if __name__ == "__main__":

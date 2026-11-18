@@ -115,6 +115,46 @@ class TestBuildPrice(unittest.TestCase):
         regions = pipeline.build_region_index(rows)
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions[0]["areas"][0]["bucket"], "60~85㎡")
+        self.assertIn("recent_12m", regions[0]["areas"][0])
+        self.assertNotIn("recent", regions[0]["areas"][0])
+
+
+class TestRecentWindow(unittest.TestCase):
+    """‘최근 2년’ 창 = 데이터 최근 공고일 − 730일(배타) = 730일창, 폴백 없음."""
+
+    def test_cutoff_and_window(self):
+        # 2026-08-21 − 730일 = 2024-08-21 → 창은 2024-08-22~2026-08-21(730일)
+        self.assertEqual(pipeline.recent_cutoff("2026-08-21"), "2024-08-21")
+
+    def test_summarize_boundary(self):
+        def row(date, score=50.0):
+            return {"notice_date": date, "score_min": score, "score_avg": score, "score_max": score,
+                    "rate_primary": 1.0, "complex_id": "1"}
+        rows = [row("2024-08-21"), row("2024-08-22"), row("2026-08-21")]
+        s = pipeline.summarize(rows, pipeline.recent_cutoff("2026-08-21"))
+        # 경계값 2024-08-21은 창 밖 1일 초과 → 제외
+        self.assertEqual(s["n"], 2)
+        self.assertEqual(s["last_notice"], "2026-08-21")
+
+    def test_no_fallback_pollution(self):
+        old = {"notice_date": "2021-07-02", "score_min": 15.0, "score_avg": 27.6, "score_max": 48.9,
+               "rate_primary": 2.0, "complex_id": "1", "sido": "대구", "sgg": "수성구", "bucket": "60~85㎡"}
+        # 창 기준(데이터 최근 공고일)을 잡아 주는 최신 공고 1건
+        new = {"notice_date": "2026-08-21", "score_min": 60.0, "score_avg": 65.0, "score_max": 70.0,
+               "rate_primary": 3.0, "complex_id": "2", "sido": "서울", "sgg": "강남구", "bucket": "60~85㎡"}
+        regions = pipeline.build_region_index([old, new])
+        suseong = next(r for r in regions if r["sgg"] == "수성구")
+        area = suseong["areas"][0]
+        self.assertEqual(area["all"]["n"], 1)
+        self.assertFalse(area["has_recent"])
+        self.assertEqual(area["recent_12m"]["n"], 0)
+        self.assertIsNone(area["recent_12m"]["min_score_avg"])
+        self.assertIsNone(area["recent_12m"]["last_notice"])
+        self.assertFalse(suseong["has_recent"])
+        self.assertEqual(suseong["recent_12m"]["n"], 0)
+        gangnam = next(r for r in regions if r["sgg"] == "강남구")
+        self.assertTrue(gangnam["has_recent"])
+        self.assertEqual(gangnam["recent_12m"]["n"], 1)
 
 
 if __name__ == "__main__":
